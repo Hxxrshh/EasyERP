@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { User, Organization } from '../types';
 import { apiClient, ApiError } from '../services/apiClient';
+import { useBillingStore } from '../store/useBillingStore';
 
 interface AuthContextType {
   user: User | null;
@@ -74,8 +75,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.setItem('auth_token', response.token);
       setUser(response.user);
       resolveActiveOrg(response.user);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof ApiError) {
+        setError(err.message);
+      } else if (err?.message) {
         setError(err.message);
       } else {
         setError('Login failed. Please check your credentials.');
@@ -103,6 +106,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const setActiveOrganizationId = (orgId: number) => {
     if (user && user.organizations) {
       resolveActiveOrg(user, orgId);
+      // Clear Zustand selected client and draft items when switching organizations
+      useBillingStore.getState().setSelectedClientId(null);
+      useBillingStore.getState().clearDraft();
     }
   };
 

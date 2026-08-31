@@ -54,6 +54,7 @@ class ReportsAndExportsTest extends TestCase
 
         $resPdf->assertStatus(200);
         $this->assertStringContainsString('application/pdf', $resPdf->headers->get('Content-Type'));
+        $this->assertStringStartsWith('%PDF', $resPdf->getContent());
 
         // XLSX Export
         $resXlsx = $this->withHeader('X-Organization-Id', $org->id)
@@ -61,6 +62,7 @@ class ReportsAndExportsTest extends TestCase
 
         $resXlsx->assertStatus(200);
         $this->assertStringContainsString('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', $resXlsx->headers->get('Content-Type'));
+        $this->assertStringStartsWith('PK', $resXlsx->getContent());
     }
 
     public function test_auditor_can_export_client_ledger(): void
@@ -235,12 +237,14 @@ class ReportsAndExportsTest extends TestCase
             ->getJson('/api/v1/reports/audit?format=pdf');
         $resPdf->assertStatus(200);
         $this->assertStringContainsString('application/pdf', $resPdf->headers->get('Content-Type'));
+        $this->assertStringStartsWith('%PDF', $resPdf->getContent());
 
         // XLSX Audit Export
         $resXlsx = $this->withHeader('X-Organization-Id', $org->id)
             ->getJson('/api/v1/reports/audit?format=xlsx');
         $resXlsx->assertStatus(200);
         $this->assertStringContainsString('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', $resXlsx->headers->get('Content-Type'));
+        $this->assertStringStartsWith('PK', $resXlsx->getContent());
 
         // CSV Audit Export
         $resCsv = $this->withHeader('X-Organization-Id', $org->id)

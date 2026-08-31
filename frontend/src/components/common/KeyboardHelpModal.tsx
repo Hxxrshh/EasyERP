@@ -1,6 +1,7 @@
 import React from 'react';
 import { ShortcutHint } from '../ui/ShortcutHint';
 import { Keyboard, X, Info } from 'lucide-react';
+import { Button } from '../ui/Button';
 
 interface KeyboardHelpModalProps {
   isOpen: boolean;
@@ -11,58 +12,85 @@ export const KeyboardHelpModal: React.FC<KeyboardHelpModalProps> = ({ isOpen, on
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white max-w-lg w-full rounded-xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="bg-white max-w-lg w-full rounded-3xl shadow-2xl border border-stone-900/[0.08] overflow-hidden flex flex-col animate-pop-in">
         {/* Header */}
-        <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <Keyboard className="w-5 h-5 text-blue-400" />
-            <h2 className="font-bold text-base">Keyboard Shortcuts Reference</h2>
+        <div className="p-5 bg-stone-900 text-white flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            <Keyboard className="w-5 h-5 text-[#D4F442]" />
+            <h2 className="font-extrabold text-sm tracking-tight text-white">Keyboard Shortcuts Reference</h2>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white">
+          <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-stone-800 text-stone-400 hover:text-white cursor-pointer">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-5 space-y-4 text-xs">
-          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 flex items-start space-x-2">
-            <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+        <div className="p-6 space-y-5 text-xs max-h-[75vh] overflow-y-auto">
+          <div className="p-4 bg-stone-50 border border-stone-100 rounded-2xl text-stone-700 flex items-start space-x-2.5">
+            <Info className="w-4 h-4 text-stone-900 shrink-0 mt-0.5" />
             <span>
-              All keyboard shortcuts are optional shortcuts for fast office operation. All features remain 100% accessible via standard mouse clicks.
+              All keyboard shortcuts are optional accelerators for fast accounting operations. All features remain 100% accessible via standard navigation.
             </span>
           </div>
 
-          <div className="space-y-3">
-            {/* Billing Shortcuts */}
-            <div className="space-y-1">
-              <h3 className="font-bold text-slate-800 uppercase tracking-wider text-[11px]">Billing Workspace</h3>
-              <div className="border rounded-lg divide-y divide-slate-100 bg-slate-50">
-                <div className="p-2.5 flex justify-between items-center bg-white">
-                  <span className="text-slate-700">Save Draft Invoice</span>
+          <div className="space-y-4">
+            {/* Quick Actions */}
+            <div className="space-y-1.5">
+              <h3 className="font-extrabold text-stone-400 uppercase tracking-widest text-[10px]">Primary Operations</h3>
+              <div className="border border-stone-100 rounded-2xl divide-y divide-stone-100 bg-white overflow-hidden">
+                <div className="p-3 flex justify-between items-center">
+                  <span className="text-stone-800 font-bold">New Bill / Invoice</span>
+                  <ShortcutHint type="newBill" />
+                </div>
+                <div className="p-3 flex justify-between items-center">
+                  <span className="text-stone-800 font-bold">Add New Customer</span>
+                  <ShortcutHint type="newClient" />
+                </div>
+                <div className="p-3 flex justify-between items-center">
+                  <span className="text-stone-800 font-bold">Add New Product</span>
+                  <ShortcutHint type="newProduct" />
+                </div>
+                <div className="p-3 flex justify-between items-center">
+                  <span className="text-stone-800 font-bold">Record Payment Receipt</span>
+                  <ShortcutHint type="recordPayment" />
+                </div>
+              </div>
+            </div>
+
+            {/* Billing Editor */}
+            <div className="space-y-1.5">
+              <h3 className="font-extrabold text-stone-400 uppercase tracking-widest text-[10px]">Invoice Composer</h3>
+              <div className="border border-stone-100 rounded-2xl divide-y divide-stone-100 bg-white overflow-hidden">
+                <div className="p-3 flex justify-between items-center">
+                  <span className="text-stone-800 font-bold">Save Draft Document</span>
                   <ShortcutHint type="saveDraft" />
                 </div>
-                <div className="p-2.5 flex justify-between items-center bg-white">
-                  <span className="text-slate-700">Add Line Item Row</span>
+                <div className="p-3 flex justify-between items-center">
+                  <span className="text-stone-800 font-bold">Add Line Item Row</span>
                   <ShortcutHint type="addLineItem" />
                 </div>
-                <div className="p-2.5 flex justify-between items-center bg-white">
-                  <span className="text-slate-700">Toggle WhatsApp Smart Parser</span>
+                <div className="p-3 flex justify-between items-center">
+                  <span className="text-stone-800 font-bold">Toggle WhatsApp Order Parser</span>
                   <ShortcutHint type="parser" />
                 </div>
               </div>
             </div>
 
-            {/* Navigation Shortcuts */}
-            <div className="space-y-1">
-              <h3 className="font-bold text-slate-800 uppercase tracking-wider text-[11px]">Global Navigation</h3>
-              <div className="border rounded-lg divide-y divide-slate-100 bg-slate-50">
-                <div className="p-2.5 flex justify-between items-center bg-white">
-                  <span className="text-slate-700">Open Command Palette</span>
+            {/* Global Navigation */}
+            <div className="space-y-1.5">
+              <h3 className="font-extrabold text-stone-400 uppercase tracking-widest text-[10px]">System & Global Context</h3>
+              <div className="border border-stone-100 rounded-2xl divide-y divide-stone-100 bg-white overflow-hidden">
+                <div className="p-3 flex justify-between items-center">
+                  <span className="text-stone-800 font-bold">Open Global Command Palette</span>
                   <ShortcutHint type="commandPalette" />
                 </div>
-                <div className="p-2.5 flex justify-between items-center bg-white">
-                  <span className="text-slate-700">Close Overlay / Drawer / Modal</span>
+                <div className="p-3 flex justify-between items-center">
+                  <span className="text-stone-800 font-bold">Refresh All Workspace Data</span>
+                  <ShortcutHint type="refresh" />
+                </div>
+                <div className="p-3 flex justify-between items-center">
+                  <span className="text-stone-800 font-bold">Close Overlay / Drawer / Modal</span>
                   <ShortcutHint type="escape" />
                 </div>
               </div>
@@ -71,13 +99,10 @@ export const KeyboardHelpModal: React.FC<KeyboardHelpModalProps> = ({ isOpen, on
         </div>
 
         {/* Footer */}
-        <div className="p-3 bg-slate-50 border-t border-slate-200 text-center">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-lg transition-colors"
-          >
+        <div className="p-4 bg-stone-50 border-t border-stone-100 flex justify-end">
+          <Button variant="ghost" onClick={onClose}>
             Close Reference
-          </button>
+          </Button>
         </div>
       </div>
     </div>

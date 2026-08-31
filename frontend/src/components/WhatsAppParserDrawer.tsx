@@ -2,13 +2,15 @@ import React, { useState } from 'react';
 import { useBillingStore } from '../store/useBillingStore';
 import { useMetaQuery } from '../hooks/useApiQueries';
 import { apiClient } from '../services/apiClient';
-import { X, MessageSquare, ArrowRight, CheckCircle, AlertTriangle } from 'lucide-react';
+import { uiEventBus } from '../services/uiEventBus';
+import { Button } from './ui/Button';
+import { X, MessageSquare, ArrowRight, CheckCircle, AlertTriangle, AlertCircle } from 'lucide-react';
 
 export const WhatsAppParserDrawer: React.FC = () => {
   const { isWhatsAppDrawerOpen, setWhatsAppDrawerOpen, selectedClientId, setSelectedClientId, addDraftItem } = useBillingStore();
   const { data: metaData } = useMetaQuery();
 
-  const [rawText, setRawText] = useState('hdpe 50\npp 100');
+  const [rawText, setRawText] = useState('rr\nhdpe 50\npp_bags 100');
   const [isParsing, setIsParsing] = useState(false);
   const [parsedResult, setParsedResult] = useState<any | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -19,14 +21,18 @@ export const WhatsAppParserDrawer: React.FC = () => {
     setIsParsing(true);
     setParseError(null);
     setParsedResult(null);
+    uiEventBus.emit({ type: 'PARSER_STARTED' });
 
     try {
       const response = await apiClient.post<any>('/parser/whatsapp', {
-        text: rawText,
-        client_id: selectedClientId || metaData?.clients[0]?.id || null,
+        raw_text: rawText,
       });
 
       setParsedResult(response);
+      if (response.client) {
+        setSelectedClientId(response.client.id);
+      }
+      uiEventBus.emit({ type: 'PARSER_COMPLETED' });
     } catch (err: any) {
       setParseError(err.message || 'Failed to parse text via WhatsApp Smart Parser.');
     } finally {
@@ -42,8 +48,9 @@ export const WhatsAppParserDrawer: React.FC = () => {
         addDraftItem({
           product_id: item.product_id,
           quantity: item.quantity,
-          rate: item.resolved_rate || 0,
+          rate: item.rate || 0,
           gst_rate: item.gst_rate || 18,
+          price_source_label: `WhatsApp Parsed Rate · ₹${item.rate}`,
         });
       }
     });
@@ -52,34 +59,34 @@ export const WhatsAppParserDrawer: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex justify-end transition-opacity">
-      <div className="w-full max-w-lg bg-white h-full shadow-2xl flex flex-col justify-between">
+    <div className="fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-xs flex justify-end">
+      <div className="w-full max-w-lg bg-[#FAF9F5] h-full shadow-2xl flex flex-col justify-between border-l border-stone-900/[0.08] animate-slide-in-right">
         {/* Drawer Header */}
-        <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <MessageSquare className="w-5 h-5 text-emerald-400" />
-            <h2 className="font-bold text-base">WhatsApp Smart Parser</h2>
+        <div className="p-5 bg-stone-900 text-white flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            <MessageSquare className="w-5 h-5 text-[#D4F442]" />
+            <h2 className="font-extrabold text-sm tracking-tight text-white">WhatsApp Order Text Parser</h2>
           </div>
           <button
             onClick={() => setWhatsAppDrawerOpen(false)}
-            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
+            className="p-1.5 rounded-xl hover:bg-stone-800 text-stone-400 hover:text-white cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Drawer Content */}
-        <div className="p-5 flex-1 overflow-y-auto space-y-4">
-          <div className="text-xs text-slate-500 bg-slate-50 p-3 rounded border border-slate-200">
-            Paste raw customer order text received via WhatsApp or Chat. The backend parser identifies products, quantities, and price history automatically.
+        <div className="p-6 flex-1 overflow-y-auto space-y-4 text-xs">
+          <div className="text-xs text-stone-600 bg-stone-50 p-4 rounded-2xl border border-stone-100 leading-relaxed">
+            Paste raw text orders directly from WhatsApp (e.g. <code>rr \n hdpe 50 \n pp_bags 100</code>). Line 1 matches Customer short code; remaining lines match product items and quantities.
           </div>
 
-          <div className="space-y-1">
-            <label className="block text-xs font-semibold text-slate-700">Select Customer Context</label>
+          <div className="space-y-1.5">
+            <label className="block text-[11px] font-bold text-stone-700">Selected Customer Context</label>
             <select
               value={selectedClientId || ''}
               onChange={(e) => setSelectedClientId(Number(e.target.value) || null)}
-              className="w-full text-xs p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 text-slate-900 bg-white"
+              className="w-full text-xs font-bold p-2.5 border border-stone-200 rounded-xl bg-white text-stone-900 focus:outline-none focus:ring-1 focus:ring-stone-900"
             >
               <option value="">-- Select Customer --</option>
               {metaData?.clients.map((c) => (
@@ -90,74 +97,112 @@ export const WhatsAppParserDrawer: React.FC = () => {
             </select>
           </div>
 
-          <div className="space-y-1">
-            <label className="block text-xs font-semibold text-slate-700">Raw Order Text</label>
+          <div className="space-y-1.5">
+            <label className="block text-[11px] font-bold text-stone-700">Raw WhatsApp Order Text</label>
             <textarea
               rows={6}
               value={rawText}
               onChange={(e) => setRawText(e.target.value)}
-              placeholder="e.g. hdpe 50 bags\npp granules 100 kg"
-              className="w-full text-xs font-mono p-3 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 text-slate-900 bg-white"
+              placeholder="e.g. rr&#10;hdpe 50&#10;pp_bags 100"
+              className="w-full text-xs font-mono p-3 border border-stone-200 rounded-2xl bg-white text-stone-900 focus:outline-none focus:ring-1 focus:ring-stone-900"
             />
           </div>
 
-          <button
+          <Button
             onClick={handleParse}
             disabled={isParsing || !rawText.trim()}
-            className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-xs rounded transition-colors flex items-center justify-center space-x-2"
+            variant="primary"
+            className="w-full"
+            icon={<ArrowRight className="w-4 h-4" />}
           >
-            <span>{isParsing ? 'Parsing Text...' : 'Parse WhatsApp Text'}</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
+            <span>{isParsing ? 'Parsing...' : 'Parse WhatsApp Order'}</span>
+          </Button>
 
           {parseError && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded text-xs text-rose-700 flex items-center space-x-2">
+            <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-xs text-rose-950 flex items-center space-x-2">
               <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
               <span>{parseError}</span>
             </div>
           )}
 
           {parsedResult && (
-            <div className="space-y-3 pt-2">
-              <div className="text-xs font-bold text-slate-800 flex items-center space-x-1">
+            <div className="space-y-4 pt-2">
+              {parsedResult.client_error && (
+                <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-xs text-amber-950 flex items-start space-x-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>{parsedResult.client_error}</span>
+                </div>
+              )}
+
+              {parsedResult.client && (
+                <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-xs text-emerald-950 flex items-center space-x-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Matched Customer: <strong>{parsedResult.client.name}</strong></span>
+                </div>
+              )}
+
+              <div className="text-xs font-extrabold text-stone-900 flex items-center space-x-1.5">
                 <CheckCircle className="w-4 h-4 text-emerald-600" />
-                <span>Parsed Line Items ({parsedResult.items?.length || 0})</span>
+                <span>Parsed Items ({parsedResult.items?.length || 0})</span>
               </div>
 
-              <div className="border rounded overflow-hidden text-xs">
+              <div className="border border-stone-200 rounded-2xl overflow-hidden text-xs bg-white">
                 <table className="w-full text-left">
-                  <thead className="bg-slate-100 text-slate-600 border-b">
+                  <thead className="bg-stone-50 text-stone-500 text-[10px] font-extrabold uppercase border-b border-stone-100">
                     <tr>
-                      <th className="p-2">Product</th>
-                      <th className="p-2">Qty</th>
-                      <th className="p-2">Resolved Rate</th>
+                      <th className="p-2.5">Product</th>
+                      <th className="p-2.5 text-center">Qty</th>
+                      <th className="p-2.5 text-right">Resolved Rate</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-stone-100">
                     {parsedResult.items?.map((item: any, idx: number) => (
-                      <tr key={idx} className="border-b bg-white">
-                        <td className="p-2 font-medium text-slate-800">{item.product_name || item.raw_product_string}</td>
-                        <td className="p-2">{item.quantity}</td>
-                        <td className="p-2 font-semibold text-slate-900">₹{item.resolved_rate || 0}</td>
+                      <tr key={idx}>
+                        <td className="p-2.5 font-semibold text-stone-900">{item.name} ({item.unit})</td>
+                        <td className="p-2.5 text-center font-extrabold text-stone-900">{item.quantity}</td>
+                        <td className="p-2.5 text-right font-bold text-stone-900">₹{item.rate}</td>
                       </tr>
                     ))}
+                    {parsedResult.items?.length === 0 && (
+                      <tr>
+                        <td colSpan={3} className="p-6 text-center text-stone-400 italic">
+                          No valid product lines matched.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
 
-              <button
-                onClick={handleApplyParsedItems}
-                className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded transition-colors"
-              >
-                Insert Parsed Items into Draft Invoice
-              </button>
+              {parsedResult.unmatched?.length > 0 && (
+                <div className="p-4 bg-stone-50 border border-stone-200 rounded-2xl text-xs text-stone-700 space-y-1">
+                  <div className="font-bold text-amber-800">Unmatched Lines ({parsedResult.unmatched.length})</div>
+                  <ul className="list-disc list-inside text-[11px] text-stone-600">
+                    {parsedResult.unmatched.map((u: any, i: number) => (
+                      <li key={i}>
+                        <code>{typeof u === 'string' ? u : u.line}</code> — {u.reason || 'Invalid syntax'}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {parsedResult.items?.length > 0 && (
+                <Button
+                  variant="secondary"
+                  onClick={handleApplyParsedItems}
+                  className="w-full"
+                >
+                  Insert Parsed Items into Draft Bill
+                </Button>
+              )}
             </div>
           )}
         </div>
 
         {/* Drawer Footer */}
-        <div className="p-3 bg-slate-50 border-t text-center text-xs text-slate-400">
-          Press <kbd className="px-1.5 py-0.5 bg-slate-200 text-slate-700 rounded text-[10px]">Esc</kbd> to close
+        <div className="p-4 bg-stone-50 border-t border-stone-100 text-center text-xs text-stone-400 font-bold">
+          Press <kbd className="px-1.5 py-0.5 bg-white border border-stone-200 text-stone-700 rounded-md font-mono text-[10px]">Esc</kbd> to close
         </div>
       </div>
     </div>

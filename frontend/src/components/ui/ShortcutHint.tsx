@@ -1,15 +1,27 @@
 import React from 'react';
 
-export type ShortcutType = 'parser' | 'addLineItem' | 'saveDraft' | 'commandPalette' | 'escape' | 'enter';
+export type ShortcutType =
+  | 'parser'
+  | 'addLineItem'
+  | 'saveDraft'
+  | 'commandPalette'
+  | 'escape'
+  | 'enter'
+  | 'newBill'
+  | 'newClient'
+  | 'newProduct'
+  | 'recordPayment'
+  | 'refresh';
 
 interface ShortcutHintProps {
   type?: ShortcutType;
   keys?: string[];
   className?: string;
+  forceMacDisplay?: boolean;
 }
 
-export const ShortcutHint: React.FC<ShortcutHintProps> = ({ type, keys, className = '' }) => {
-  const isMac = typeof window !== 'undefined' && /mac/i.test(navigator.userAgent || navigator.platform);
+export const ShortcutHint: React.FC<ShortcutHintProps> = ({ type, keys, className = '', forceMacDisplay = false }) => {
+  const isMac = forceMacDisplay;
 
   let keyDisplay: string[] = [];
 
@@ -27,6 +39,16 @@ export const ShortcutHint: React.FC<ShortcutHintProps> = ({ type, keys, classNam
     keyDisplay = ['Esc'];
   } else if (type === 'enter') {
     keyDisplay = ['↵'];
+  } else if (type === 'newBill') {
+    keyDisplay = [isMac ? '⌘' : 'Ctrl', 'N'];
+  } else if (type === 'newClient') {
+    keyDisplay = [isMac ? '⌥' : 'Alt', 'C'];
+  } else if (type === 'newProduct') {
+    keyDisplay = [isMac ? '⌥' : 'Alt', 'P'];
+  } else if (type === 'recordPayment') {
+    keyDisplay = [isMac ? '⌥' : 'Alt', 'R'];
+  } else if (type === 'refresh') {
+    keyDisplay = [isMac ? '⌘' : 'Ctrl', 'Shift', 'R'];
   }
 
   return (
@@ -34,7 +56,7 @@ export const ShortcutHint: React.FC<ShortcutHintProps> = ({ type, keys, classNam
       {keyDisplay.map((k, i) => (
         <kbd
           key={i}
-          className="px-1.5 py-0.5 text-[10px] font-mono font-extrabold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded shadow-2xs"
+          className="px-1.5 py-0.5 text-[9px] font-mono font-bold bg-stone-100 text-stone-700 border border-stone-300/80 rounded-md shadow-2xs"
         >
           {k}
         </kbd>

@@ -12,6 +12,7 @@ use App\Models\Organization;
 use App\Models\Product;
 use App\Services\AuditLogService;
 use App\Services\GstCalculatorService;
+use App\Services\InventoryService;
 use App\Services\InvoiceLockService;
 use App\Services\InvoiceSequenceService;
 use Carbon\Carbon;
@@ -33,6 +34,20 @@ class InvoiceController extends Controller
             $query->where('status', '!=', 'draft');
         }
 
+        if ($search = $request->query('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('invoice_number', 'like', "%{$search}%")
+                  ->orWhereHas('client', function ($cq) use ($search) {
+                      $cq->where('name', 'like', "%{$search}%")
+                        ->orWhere('company_name', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        if ($clientId = $request->query('client_id')) {
+            $query->where('client_id', $clientId);
+        }
+
         if ($type = $request->query('document_type')) {
             $query->where('document_type', $type);
         }
@@ -41,7 +56,75 @@ class InvoiceController extends Controller
             $query->where('status', $status);
         }
 
-        return response()->json($query->latest()->paginate(20));
+        if ($taxMode = $request->query('tax_mode')) {
+            $query->where('tax_mode', $taxMode);
+        }
+
+        if ($from = $request->query('from')) {
+            $query->whereDate('date', '>=', $from);
+        }
+
+        if ($to = $request->query('to')) {
+            $query->whereDate('date', '<=', $to);
+        }
+
+        if ($fy = $request->query('financial_year')) {
+            // Financial year format FY26-27 or 2026-2027
+            $parts = explode('-', str_replace('FY', '', $fy));
+            if (count($parts) === 2) {
+                $startYear = strlen($parts[0]) === 2 ? ('20' . $parts[0]) : $parts[0];
+                $endYear = strlen($parts[1]) === 2 ? ('20' . $parts[1]) : $parts[1];
+                $query->whereDate('date', '>=', "{$startYear}-04-01")
+                      ->whereDate('date', '<=', "{$endYear}-03-31");
+            }
+        }
+
+        if ($payStatus = $request->query('payment_status')) {
+            if ($payStatus === 'unpaid') {
+                $query->where('paid_amount', '<=', 0);
+            } elseif ($payStatus === 'partially_paid') {
+                $query->whereRaw('paid_amount > 0 AND paid_amount < total_amount');
+            } elseif ($payStatus === 'paid') {
+                $query->whereRaw('paid_amount >= total_amount');
+            }
+        }
+
+        if ($request->boolean('is_overdue')) {
+            $today = Carbon::today()->toDateString();
+            $query->where('status', 'finalized')
+                  ->whereRaw('paid_amount < total_amount')
+                  ->whereDate('due_date', '<', $today);
+        }
+
+        // Clone query for calculating authoritative summary metrics across matched set
+        $summaryQuery = clone $query;
+        $allMatched = $summaryQuery->get();
+        $totalAmountSum = (float) $allMatched->sum('total_amount');
+        $paidAmountSum = (float) $allMatched->sum('paid_amount');
+        $outstandingAmountSum = round(max(0, $totalAmountSum - $paidAmountSum), 2);
+
+        $today = Carbon::today();
+        $overdueAmountSum = 0.0;
+        foreach ($allMatched as $inv) {
+            if ($inv->status === 'finalized' && ($inv->total_amount - $inv->paid_amount) > 0.001) {
+                $dueDate = $inv->due_date ? Carbon::parse($inv->due_date) : Carbon::parse($inv->date)->addDays(30);
+                if ($today->gt($dueDate)) {
+                    $overdueAmountSum += ($inv->total_amount - $inv->paid_amount);
+                }
+            }
+        }
+
+        $paginated = $query->latest()->paginate(20);
+        $customResponse = array_merge($paginated->toArray(), [
+            'summary' => [
+                'total_amount_sum'       => round($totalAmountSum, 2),
+                'paid_amount_sum'        => round($paidAmountSum, 2),
+                'outstanding_amount_sum' => round($outstandingAmountSum, 2),
+                'overdue_amount_sum'     => round($overdueAmountSum, 2),
+            ],
+        ]);
+
+        return response()->json($customResponse);
     }
 
     public function store(StoreInvoiceRequest $request, GstCalculatorService $gstService, AuditLogService $auditService): JsonResponse
@@ -75,16 +158,18 @@ class InvoiceController extends Controller
             }
         }
 
-        $calcResult = $gstService->calculate($organization, $client, $validated['items']);
+        $taxMode = $validated['tax_mode'] ?? 'taxable';
+        $calcResult = $gstService->calculate($organization, $client, $validated['items'], $taxMode);
         $dueDate = Carbon::parse($validated['date'])
             ->addDays($client->default_due_days)
             ->format('Y-m-d');
 
-        $invoice = DB::transaction(function () use ($validated, $orgId, $userId, $dueDate, $calcResult, $auditService) {
+        $invoice = DB::transaction(function () use ($validated, $orgId, $userId, $dueDate, $taxMode, $calcResult, $auditService) {
             $invoice = Invoice::create([
                 'organization_id' => $orgId,
                 'client_id'       => $validated['client_id'],
                 'document_type'   => $validated['document_type'],
+                'tax_mode'        => $taxMode,
                 'date'            => $validated['date'],
                 'due_date'        => $dueDate,
                 'subtotal'        => $calcResult['subtotal'],
@@ -188,17 +273,19 @@ class InvoiceController extends Controller
             }
         }
 
-        $calcResult = $gstService->calculate($organization, $client, $validated['items']);
+        $taxMode = $validated['tax_mode'] ?? $invoice->tax_mode ?? 'taxable';
+        $calcResult = $gstService->calculate($organization, $client, $validated['items'], $taxMode);
         $dueDate = Carbon::parse($validated['date'])
             ->addDays($client->default_due_days)
             ->format('Y-m-d');
 
         $beforeData = $invoice->toArray();
 
-        DB::transaction(function () use ($invoice, $validated, $orgId, $userId, $dueDate, $calcResult, $beforeData, $auditService) {
+        DB::transaction(function () use ($invoice, $validated, $orgId, $userId, $dueDate, $taxMode, $calcResult, $beforeData, $auditService) {
             $invoice->update([
                 'client_id'     => $validated['client_id'],
                 'document_type' => $validated['document_type'],
+                'tax_mode'      => $taxMode,
                 'date'          => $validated['date'],
                 'due_date'      => $dueDate,
                 'subtotal'      => $calcResult['subtotal'],
@@ -230,8 +317,14 @@ class InvoiceController extends Controller
         return response()->json($invoice->fresh(['client', 'items.product']));
     }
 
-    public function finalize(int $id, Request $request, InvoiceSequenceService $sequenceService, GstCalculatorService $gstService, AuditLogService $auditService): JsonResponse
-    {
+    public function finalize(
+        int $id,
+        Request $request,
+        InvoiceSequenceService $sequenceService,
+        GstCalculatorService $gstService,
+        AuditLogService $auditService,
+        InventoryService $inventoryService
+    ): JsonResponse {
         $role = $request->attributes->get('active_role');
         if ($role === 'auditor') {
             return response()->json(['message' => 'Auditors are not permitted to finalize invoices.'], 403);
@@ -259,7 +352,7 @@ class InvoiceController extends Controller
 
         $beforeData = $invoice->toArray();
 
-        DB::transaction(function () use ($invoice, $organization, $orgId, $userId, $sequenceService, $gstService, $beforeData, $auditService) {
+        DB::transaction(function () use ($invoice, $organization, $orgId, $userId, $sequenceService, $gstService, $beforeData, $auditService, $inventoryService) {
             $client = Client::where('id', $invoice->client_id)
                 ->where('organization_id', $organization->id)
                 ->firstOrFail();
@@ -273,7 +366,8 @@ class InvoiceController extends Controller
                 ];
             })->toArray();
 
-            $calcResult = $gstService->calculate($organization, $client, $itemsPayload);
+            $taxMode = $invoice->tax_mode ?? 'taxable';
+            $calcResult = $gstService->calculate($organization, $client, $itemsPayload, $taxMode);
 
             $invoiceNumber = $sequenceService->generateNextNumber(
                 $organization->id,
@@ -309,6 +403,9 @@ class InvoiceController extends Controller
                     ]
                 );
             }
+
+            // Deduct physical inventory stock for finalized invoices & delivery challans
+            $inventoryService->handleInvoiceFinalization($invoice->fresh(), $userId);
 
             $auditService->log(
                 $orgId,
@@ -379,14 +476,16 @@ class InvoiceController extends Controller
             ];
         })->toArray();
 
-        $calcResult = $gstService->calculate($organization, $client, $itemsPayload);
+        $taxMode = $sourceDoc->tax_mode ?? 'taxable';
+        $calcResult = $gstService->calculate($organization, $client, $itemsPayload, $taxMode);
         $dueDate = Carbon::now()->addDays($client->default_due_days)->format('Y-m-d');
 
-        $newDoc = DB::transaction(function () use ($orgId, $userId, $sourceDoc, $targetType, $dueDate, $calcResult, $auditService) {
+        $newDoc = DB::transaction(function () use ($orgId, $userId, $sourceDoc, $targetType, $dueDate, $taxMode, $calcResult, $auditService) {
             $newDoc = Invoice::create([
                 'organization_id' => $orgId,
                 'client_id'       => $sourceDoc->client_id,
                 'document_type'   => $targetType,
+                'tax_mode'        => $taxMode,
                 'date'            => now()->format('Y-m-d'),
                 'due_date'        => $dueDate,
                 'subtotal'        => $calcResult['subtotal'],
@@ -421,7 +520,7 @@ class InvoiceController extends Controller
         return response()->json($newDoc, 201);
     }
 
-    public function cancel(int $id, Request $request, AuditLogService $auditService): JsonResponse
+    public function cancel(int $id, Request $request, AuditLogService $auditService, InventoryService $inventoryService): JsonResponse
     {
         $role = $request->attributes->get('active_role');
         if ($role === 'auditor') {
@@ -442,8 +541,11 @@ class InvoiceController extends Controller
 
         $beforeData = $invoice->toArray();
 
-        DB::transaction(function () use ($invoice, $orgId, $userId, $beforeData, $auditService) {
+        DB::transaction(function () use ($invoice, $orgId, $userId, $beforeData, $auditService, $inventoryService) {
             $invoice->update(['status' => 'cancelled']);
+
+            // Restore physical inventory stock if a finalized document is cancelled
+            $inventoryService->handleInvoiceCancellation($invoice, $userId);
 
             $auditService->log(
                 $orgId,

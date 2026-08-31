@@ -216,6 +216,7 @@ class ReportDataService
             return [
                 'id'             => $inv->id,
                 'invoice_number' => $inv->invoice_number,
+                'tax_mode'       => $inv->tax_mode ?? 'taxable',
                 'date'           => Carbon::parse($inv->date)->format('Y-m-d'),
                 'due_date'       => !empty($inv->due_date) ? Carbon::parse($inv->due_date)->format('Y-m-d') : null,
                 'client_name'    => $inv->client?->name,
@@ -263,7 +264,8 @@ class ReportDataService
         $query = Invoice::with(['client', 'items.product'])
             ->where('organization_id', $orgId)
             ->where('status', 'finalized')
-            ->where('document_type', 'invoice');
+            ->where('document_type', 'invoice')
+            ->where('tax_mode', 'taxable');
 
         if ($fromDate) {
             $query->where('date', '>=', $fromDate);

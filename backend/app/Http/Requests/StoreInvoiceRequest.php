@@ -26,6 +26,7 @@ class StoreInvoiceRequest extends FormRequest
             'organization_id'    => 'nullable|exists:organizations,id',
             'client_id'          => 'required|exists:clients,id',
             'document_type'      => 'required|in:invoice,quote,proforma,challan',
+            'tax_mode'           => 'nullable|in:taxable,non_taxable',
             'date'               => 'required|date',
             'template_key'       => 'nullable|string|max:50',
             'items'              => 'required|array|min:1',

@@ -13,11 +13,13 @@ class GstCalculatorService
      * @param Organization $organization
      * @param Client $client
      * @param array $items Array of ['product_id' => int, 'quantity' => float, 'rate' => float, 'gst_rate' => float]
+     * @param string $taxMode 'taxable' or 'non_taxable'
      * @return array Calculated accounting totals and items breakdown
      */
-    public function calculate(Organization $organization, Client $client, array $items): array
+    public function calculate(Organization $organization, Client $client, array $items, string $taxMode = 'taxable'): array
     {
-        $hasGst = !empty(trim((string) $organization->gst_number));
+        $isNonTaxable = ($taxMode === 'non_taxable');
+        $hasGst = $isNonTaxable ? false : !empty(trim((string) $organization->gst_number));
 
         // State comparison (case-insensitive trim)
         $sellerState = strtolower(trim((string) $organization->state));
@@ -33,12 +35,12 @@ class GstCalculatorService
         foreach ($items as $item) {
             $quantity = (float) $item['quantity'];
             $rate = (float) $item['rate'];
-            $configuredGstRate = (float) ($item['gst_rate'] ?? 0.00);
+            $configuredGstRate = $isNonTaxable ? 0.00 : (float) ($item['gst_rate'] ?? 0.00);
 
             $taxableAmount = round($quantity * $rate, 2);
 
-            if (!$hasGst) {
-                // Non-GST Organization: disable tax
+            if ($isNonTaxable || !$hasGst) {
+                // Non-Taxable Mode or Non-GST Organization: disable tax completely
                 $cgstRate = 0.00;
                 $sgstRate = 0.00;
                 $igstRate = 0.00;

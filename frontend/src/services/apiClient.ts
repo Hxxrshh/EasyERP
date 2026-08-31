@@ -1,6 +1,16 @@
 import type { ApiErrorResponse } from '../types';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+export const getBaseUrl = (): string => {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  if (typeof window !== 'undefined' && (window.location.port === '5173' || window.location.port === '5174')) {
+    return 'http://127.0.0.1:8001/api/v1';
+  }
+  return 'http://127.0.0.1:8000/api/v1';
+};
+
+export const BASE_URL = getBaseUrl();
 
 export class ApiError extends Error {
   public status: number;
@@ -37,11 +47,16 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     headers['X-Organization-Id'] = String(activeOrgId);
   }
 
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
-    headers,
-    body: body ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined,
-    ...restOptions,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${getBaseUrl()}${endpoint}`, {
+      headers,
+      body: body ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined,
+      ...restOptions,
+    });
+  } catch (err: any) {
+    throw new ApiError(0, err.message || 'Unable to connect to backend server. Please verify the server is running.');
+  }
 
   if (!response.ok) {
     let errorData: ApiErrorResponse = { message: 'An unexpected HTTP error occurred.' };

@@ -12,6 +12,8 @@ import { LedgerWorkspace } from './components/ledger/LedgerWorkspace';
 import { DocumentsWorkspace } from './components/documents/DocumentsWorkspace';
 import { ReportsWorkspace } from './components/reports/ReportsWorkspace';
 import { AuditTrailWorkspace } from './components/audit/AuditTrailWorkspace';
+import { TemplateWarehouseView } from './components/common/TemplateWarehouseView';
+import { InventoryWorkspace } from './components/inventory/InventoryWorkspace';
 import { WhatsAppParserDrawer } from './components/WhatsAppParserDrawer';
 
 function App() {
@@ -40,7 +42,9 @@ function App() {
       {activeTab === 'payments' && <PaymentsWorkspace />}
       {activeTab === 'ledger' && <LedgerWorkspace />}
       {activeTab === 'documents' && <DocumentsWorkspace />}
+      {activeTab === 'inventory' && <InventoryWorkspace />}
       {activeTab === 'reports' && <ReportsWorkspace />}
+      {activeTab === 'templates' && <TemplateWarehouseView />}
       {activeTab === 'audit' && <AuditTrailWorkspace />}
     </AppShell>
   );

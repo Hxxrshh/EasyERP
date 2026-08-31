@@ -15,9 +15,19 @@ class Client extends Model
 
     protected $guarded = ['id'];
 
+    protected $casts = [
+        'is_archived' => 'boolean',
+        'archived_at' => 'datetime',
+    ];
+
     public function organization(): BelongsTo
     {
         return $this->belongsTo(Organization::class);
+    }
+
+    public function archivedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'archived_by');
     }
 
     public function invoices(): HasMany
@@ -33,5 +43,15 @@ class Client extends Model
     public function productPrices(): HasMany
     {
         return $this->hasMany(ClientProductPrice::class);
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_archived', false);
+    }
+
+    public function scopeArchived($query)
+    {
+        return $query->where('is_archived', true);
     }
 }

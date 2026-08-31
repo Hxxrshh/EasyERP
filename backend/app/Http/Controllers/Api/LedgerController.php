@@ -259,4 +259,83 @@ class LedgerController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
     }
+
+    public function autoAllocate(int $paymentId, Request $request, PaymentFifoService $fifoService, AuditLogService $auditService): JsonResponse
+    {
+        $role = $request->attributes->get('active_role');
+        if ($role === 'auditor') {
+            return response()->json(['message' => 'Auditors are not permitted to allocate payments.'], 403);
+        }
+
+        $orgId = $request->attributes->get('active_organization_id');
+        $user = $request->user();
+
+        $payment = Payment::where('organization_id', $orgId)->find($paymentId);
+        if (!$payment) {
+            return response()->json(['message' => 'Payment not found in this organization.'], 404);
+        }
+
+        $fifoService->allocate($payment);
+
+        $auditService->log(
+            $orgId,
+            $user?->id,
+            'payment_auto_allocated',
+            $payment,
+            $payment->id,
+            null,
+            ['payment_id' => $payment->id]
+        );
+
+        return response()->json([
+            'payment' => $payment->fresh()->load(['client', 'allocations.invoice']),
+            'message' => 'Payment auto-allocated successfully.'
+        ]);
+    }
+
+    public function getPaymentsList(Request $request): JsonResponse
+    {
+        $orgId = $request->attributes->get('active_organization_id');
+
+        $query = Payment::with(['client', 'allocations.invoice'])
+            ->where('organization_id', $orgId);
+
+        if ($clientId = $request->query('client_id')) {
+            $query->where('client_id', $clientId);
+        }
+
+        if ($mode = $request->query('payment_mode')) {
+            $query->where('payment_mode', $mode);
+        }
+
+        if ($from = $request->query('from')) {
+            $query->whereDate('payment_date', '>=', $from);
+        }
+
+        if ($to = $request->query('to')) {
+            $query->whereDate('payment_date', '<=', $to);
+        }
+
+        if ($status = $request->query('allocation_status')) {
+            if ($status === 'unallocated') {
+                $query->whereRaw('unallocated_amount >= amount');
+            } elseif ($status === 'partially_allocated') {
+                $query->whereRaw('unallocated_amount > 0 AND unallocated_amount < amount');
+            } elseif ($status === 'fully_allocated') {
+                $query->where('unallocated_amount', '<=', 0);
+            }
+        }
+
+        if ($search = $request->query('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('transaction_reference', 'like', "%{$search}%")
+                  ->orWhereHas('client', function ($cq) use ($search) {
+                      $cq->where('name', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        $paginated = $query->orderBy('payment_date', 'desc')->orderBy('id', 'desc')->paginate(20);
+        return response()->json($paginated);
+    }
 }

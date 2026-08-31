@@ -15,11 +15,22 @@ class Organization extends Model
 
     protected $guarded = ['id'];
 
+    protected $casts = [
+        'is_active'   => 'boolean',
+        'is_archived' => 'boolean',
+        'archived_at' => 'datetime',
+    ];
+
     public function users(): BelongsToMany
     {
         return $this->belongsToMany(User::class)
             ->withPivot('role')
             ->withTimestamps();
+    }
+
+    public function archivedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'archived_by');
     }
 
     public function clients(): HasMany
@@ -40,5 +51,15 @@ class Organization extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_archived', false);
+    }
+
+    public function scopeArchived($query)
+    {
+        return $query->where('is_archived', true);
     }
 }

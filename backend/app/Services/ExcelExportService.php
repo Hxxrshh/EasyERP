@@ -4,10 +4,19 @@ namespace App\Services;
 
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Cell\DataType;
 
 class ExcelExportService
 {
+    private function saveSpreadsheetToBinary(Spreadsheet $spreadsheet): string
+    {
+        $tempFile = tempnam(sys_get_temp_dir(), 'xlsx_');
+        $writer = new Xlsx($spreadsheet);
+        $writer->save($tempFile);
+        $binary = file_get_contents($tempFile);
+        @unlink($tempFile);
+        return $binary;
+    }
+
     /**
      * Generate Client Ledger XLSX with 3 sheets (Ledger, Invoice Details, Payments)
      */
@@ -101,10 +110,7 @@ class ExcelExportService
             $rowIdx++;
         }
 
-        $writer = new Xlsx($spreadsheet);
-        ob_start();
-        $writer->save('php://output');
-        return ob_get_clean();
+        return $this->saveSpreadsheetToBinary($spreadsheet);
     }
 
     /**
@@ -116,45 +122,44 @@ class ExcelExportService
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Invoice Register');
 
-        $headers = ['Invoice Number', 'Invoice Date', 'Due Date', 'Client Name', 'Client GSTIN', 'Client State', 'Taxable Amount (₹)', 'CGST (₹)', 'SGST (₹)', 'IGST (₹)', 'Total GST (₹)', 'Grand Total (₹)', 'Paid Amount (₹)', 'Outstanding (₹)', 'Payment Status'];
+        $headers = ['Invoice Number', 'Tax Mode', 'Invoice Date', 'Due Date', 'Client Name', 'Client GSTIN', 'Client State', 'Taxable Amount (₹)', 'CGST (₹)', 'SGST (₹)', 'IGST (₹)', 'Total GST (₹)', 'Grand Total (₹)', 'Paid Amount (₹)', 'Outstanding (₹)', 'Payment Status'];
         $sheet->fromArray($headers, null, 'A1');
 
         $rowIdx = 2;
         foreach ($data['invoices'] as $inv) {
+            $taxModeLabel = ($inv['tax_mode'] ?? 'taxable') === 'non_taxable' ? 'Non-Taxable' : 'Taxable (GST)';
             $sheet->setCellValue("A{$rowIdx}", $inv['invoice_number']);
-            $sheet->setCellValue("B{$rowIdx}", $inv['date']);
-            $sheet->setCellValue("C{$rowIdx}", $inv['due_date'] ?? '');
-            $sheet->setCellValue("D{$rowIdx}", $inv['client_name']);
-            $sheet->setCellValue("E{$rowIdx}", $inv['client_gstin'] ?? 'URP');
-            $sheet->setCellValue("F{$rowIdx}", $inv['client_state']);
-            $sheet->setCellValue("G{$rowIdx}", (float) $inv['taxable_amount']);
-            $sheet->setCellValue("H{$rowIdx}", (float) $inv['cgst_amount']);
-            $sheet->setCellValue("I{$rowIdx}", (float) $inv['sgst_amount']);
-            $sheet->setCellValue("J{$rowIdx}", (float) $inv['igst_amount']);
-            $sheet->setCellValue("K{$rowIdx}", (float) $inv['total_gst']);
-            $sheet->setCellValue("L{$rowIdx}", (float) $inv['grand_total']);
-            $sheet->setCellValue("M{$rowIdx}", (float) $inv['paid_amount']);
-            $sheet->setCellValue("N{$rowIdx}", (float) $inv['outstanding']);
-            $sheet->setCellValue("O{$rowIdx}", $inv['status']);
+            $sheet->setCellValue("B{$rowIdx}", $taxModeLabel);
+            $sheet->setCellValue("C{$rowIdx}", $inv['date']);
+            $sheet->setCellValue("D{$rowIdx}", $inv['due_date'] ?? '');
+            $sheet->setCellValue("E{$rowIdx}", $inv['client_name']);
+            $sheet->setCellValue("F{$rowIdx}", $inv['client_gstin'] ?? 'URP');
+            $sheet->setCellValue("G{$rowIdx}", $inv['client_state']);
+            $sheet->setCellValue("H{$rowIdx}", (float) $inv['taxable_amount']);
+            $sheet->setCellValue("I{$rowIdx}", (float) $inv['cgst_amount']);
+            $sheet->setCellValue("J{$rowIdx}", (float) $inv['sgst_amount']);
+            $sheet->setCellValue("K{$rowIdx}", (float) $inv['igst_amount']);
+            $sheet->setCellValue("L{$rowIdx}", (float) $inv['total_gst']);
+            $sheet->setCellValue("M{$rowIdx}", (float) $inv['grand_total']);
+            $sheet->setCellValue("N{$rowIdx}", (float) $inv['paid_amount']);
+            $sheet->setCellValue("O{$rowIdx}", (float) $inv['outstanding']);
+            $sheet->setCellValue("P{$rowIdx}", $inv['status']);
             $rowIdx++;
         }
 
         // Totals Row
         $totals = $data['totals'];
         $sheet->setCellValue("A{$rowIdx}", 'TOTALS');
-        $sheet->setCellValue("G{$rowIdx}", (float) $totals['taxable_amount']);
-        $sheet->setCellValue("H{$rowIdx}", (float) $totals['cgst_amount']);
-        $sheet->setCellValue("I{$rowIdx}", (float) $totals['sgst_amount']);
-        $sheet->setCellValue("J{$rowIdx}", (float) $totals['igst_amount']);
-        $sheet->setCellValue("K{$rowIdx}", (float) $totals['total_gst']);
-        $sheet->setCellValue("L{$rowIdx}", (float) $totals['grand_total']);
-        $sheet->setCellValue("M{$rowIdx}", (float) $totals['paid_amount']);
-        $sheet->setCellValue("N{$rowIdx}", (float) $totals['outstanding']);
+        $sheet->setCellValue("H{$rowIdx}", (float) $totals['taxable_amount']);
+        $sheet->setCellValue("I{$rowIdx}", (float) $totals['cgst_amount']);
+        $sheet->setCellValue("J{$rowIdx}", (float) $totals['sgst_amount']);
+        $sheet->setCellValue("K{$rowIdx}", (float) $totals['igst_amount']);
+        $sheet->setCellValue("L{$rowIdx}", (float) $totals['total_gst']);
+        $sheet->setCellValue("M{$rowIdx}", (float) $totals['grand_total']);
+        $sheet->setCellValue("N{$rowIdx}", (float) $totals['paid_amount']);
+        $sheet->setCellValue("O{$rowIdx}", (float) $totals['outstanding']);
 
-        $writer = new Xlsx($spreadsheet);
-        ob_start();
-        $writer->save('php://output');
-        return ob_get_clean();
+        return $this->saveSpreadsheetToBinary($spreadsheet);
     }
 
     /**
@@ -237,10 +242,7 @@ class ExcelExportService
             $rowIdx++;
         }
 
-        $writer = new Xlsx($spreadsheet);
-        ob_start();
-        $writer->save('php://output');
-        return ob_get_clean();
+        return $this->saveSpreadsheetToBinary($spreadsheet);
     }
 
     /**
@@ -269,9 +271,6 @@ class ExcelExportService
             $rowIdx++;
         }
 
-        $writer = new Xlsx($spreadsheet);
-        ob_start();
-        $writer->save('php://output');
-        return ob_get_clean();
+        return $this->saveSpreadsheetToBinary($spreadsheet);
     }
 }

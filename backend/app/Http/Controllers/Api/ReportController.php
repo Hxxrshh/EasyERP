@@ -213,6 +213,11 @@ class ReportController extends Controller
      */
     public function auditReport(Request $request): Response|JsonResponse
     {
+        $role = $request->attributes->get('active_role');
+        if (!in_array($role, ['admin', 'auditor'])) {
+            return response()->json(['message' => 'Access denied. Audit reports are restricted to Administrator and Auditor roles.'], 403);
+        }
+
         $request->validate([
             'from'        => 'nullable|date_format:Y-m-d',
             'to'          => 'nullable|date_format:Y-m-d',

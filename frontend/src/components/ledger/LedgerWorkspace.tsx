@@ -1,247 +1,325 @@
 import React, { useState } from 'react';
-import { useBillingStore } from '../../store/useBillingStore';
-import { useMetaQuery, useLedgerQuery } from '../../hooks/useApiQueries';
+import { useLedgerStatementQuery, useMetaQuery } from '../../hooks/useApiQueries';
+import { uiEventBus } from '../../services/uiEventBus';
+import { downloadFile } from '../../utils/downloadFile';
 import { LoadingSpinner } from '../common/LoadingSpinner';
+import { LedgerLoadingAnimation } from './LedgerLoadingAnimation';
 import { ErrorAlert } from '../common/ErrorAlert';
-import { BookOpen, FileSpreadsheet, FileText, Calendar } from 'lucide-react';
+import { Button } from '../ui/Button';
+import {
+  Download,
+  Receipt,
+  Search,
+} from 'lucide-react';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1';
 
 export const LedgerWorkspace: React.FC = () => {
-  const { selectedClientId, setSelectedClientId } = useBillingStore();
   const { data: metaData, isLoading: isMetaLoading } = useMetaQuery();
+  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [isPdfDownloading, setIsPdfDownloading] = useState(false);
+  const [isExcelDownloading, setIsExcelDownloading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const [from, setFrom] = useState<string>('');
-  const [to, setTo] = useState<string>('');
+  // Automatically select first client if none selected
+  React.useEffect(() => {
+    if (!selectedClientId && metaData?.clients && metaData.clients.length > 0) {
+      setSelectedClientId(metaData.clients[0].id);
+    }
+  }, [metaData, selectedClientId]);
 
-  // Auto select first client if none selected
-  const activeClientId = selectedClientId || (metaData?.clients[0]?.id ?? undefined);
-  const { data: ledgerData, isLoading: isLedgerLoading, error } = useLedgerQuery(activeClientId, from, to);
+  const {
+    data: ledgerData,
+    isLoading: isLedgerLoading,
+    error: ledgerError,
+    isFetching: isLedgerFetching,
+  } = useLedgerStatementQuery(selectedClientId, startDate, endDate);
 
-  if (isMetaLoading) {
-    return <LoadingSpinner label="Loading customer ledger metadata..." />;
-  }
+  React.useEffect(() => {
+    if (isLedgerFetching) {
+      uiEventBus.emit({ type: 'LEDGER_LOADING' });
+    } else if (ledgerData && selectedClientId) {
+      uiEventBus.emit({ type: 'LEDGER_READY' });
+    }
+  }, [isLedgerFetching, ledgerData, selectedClientId]);
 
-  const handleApplyFY = (fy: string) => {
-    if (fy === '2026-27') {
-      setFrom('2026-04-01');
-      setTo('2027-03-31');
+  const handleDownloadPdf = async () => {
+    if (!selectedClientId) return;
+    setIsPdfDownloading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set('format', 'pdf');
+      if (startDate) params.set('from', startDate);
+      if (endDate) params.set('to', endDate);
+      const url = `${BASE_URL}/ledgers/${selectedClientId}/export?${params.toString()}`;
+      await downloadFile(url, `Ledger_Statement_${selectedClientId}.pdf`);
+    } catch (err) {
+      console.error('PDF export error:', err);
+    } finally {
+      setIsPdfDownloading(false);
     }
   };
 
-  const handleExport = (format: 'pdf' | 'xlsx') => {
-    if (!activeClientId) return;
-    const token = localStorage.getItem('auth_token');
-    const orgId = localStorage.getItem('active_organization_id');
-
-    const queryParams = new URLSearchParams();
-    queryParams.set('format', format);
-    if (from) queryParams.set('from', from);
-    if (to) queryParams.set('to', to);
-
-    const exportUrl = `${BASE_URL}/ledgers/${activeClientId}/export?${queryParams.toString()}`;
-
-    // Download file via fetch blob
-    fetch(exportUrl, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'X-Organization-Id': orgId || '',
-      },
-    })
-      .then((res) => res.blob())
-      .then((blob) => {
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Ledger_Client_${activeClientId}_${new Date().toISOString().split('T')[0]}.${format}`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      })
-      .catch(() => alert('Failed to download export file.'));
+  const handleDownloadExcel = async () => {
+    if (!selectedClientId) return;
+    setIsExcelDownloading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set('format', 'xlsx');
+      if (startDate) params.set('from', startDate);
+      if (endDate) params.set('to', endDate);
+      const url = `${BASE_URL}/ledgers/${selectedClientId}/export?${params.toString()}`;
+      await downloadFile(url, `Ledger_Statement_${selectedClientId}.xlsx`);
+    } catch (err) {
+      console.error('Excel export error:', err);
+    } finally {
+      setIsExcelDownloading(false);
+    }
   };
 
+  const setFinancialYear = (yearStart: number) => {
+    setStartDate(`${yearStart}-04-01`);
+    setEndDate(`${yearStart + 1}-03-31`);
+  };
+
+  if (isMetaLoading) {
+    return <LoadingSpinner label="Loading customer ledger directory..." />;
+  }
+
+  const clients = metaData?.clients || [];
+  const selectedClient = clients.find((c) => c.id === selectedClientId);
+  const statement = ledgerData?.statement || [];
+
+  const filteredStatement = statement.filter((entry: any) =>
+    (entry.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (entry.invoice_number && entry.invoice_number.toLowerCase().includes(searchQuery.toLowerCase())) ||
+    (entry.transaction_reference && entry.transaction_reference.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Workspace Header */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Authoritative Customer Ledger</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Chronological double-entry debit/credit ledger statement & opening/closing balance engine.</p>
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2">
+        <div className="space-y-2">
+          <div className="flex items-center space-x-2">
+            <span className="text-[10px] font-extrabold uppercase tracking-widest text-stone-500 bg-stone-900/[0.04] px-2.5 py-1 rounded-full border border-stone-900/[0.06]">
+              DOUBLE-ENTRY LEDGER
+            </span>
+            <span className="w-1.5 h-1.5 rounded-full bg-[#D4F442]" />
+            <span className="text-[11px] font-bold text-stone-500 font-mono">
+              Running Balance Ledger
+            </span>
+          </div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-stone-900">
+            Authoritative Customer Ledger
+          </h1>
+          <p className="text-xs text-stone-500 max-w-2xl leading-relaxed">
+            Forensically reconciled double-entry chronological running balance of all finalized invoices, credit entries, and allocated payments.
+          </p>
         </div>
 
-        {/* Exports & Controls */}
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => handleExport('pdf')}
-            disabled={!activeClientId}
-            className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold text-xs rounded-lg transition-colors flex items-center space-x-1.5 shadow-xs cursor-pointer"
+        {/* Action Exports */}
+        <div className="flex items-center space-x-3 shrink-0">
+          <Button
+            variant="ghost"
+            onClick={handleDownloadExcel}
+            isLoading={isExcelDownloading}
+            icon={<Download className="w-4 h-4 text-stone-700" />}
           >
-            <FileText className="w-4 h-4" />
-            <span>Export PDF Statement</span>
-          </button>
-          <button
-            onClick={() => handleExport('xlsx')}
-            disabled={!activeClientId}
-            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-lg transition-colors flex items-center space-x-1.5 shadow-xs cursor-pointer"
+            Export CSV / Excel
+          </Button>
+
+          <Button
+            variant="primary"
+            onClick={handleDownloadPdf}
+            isLoading={isPdfDownloading}
+            icon={<Download className="w-4 h-4 text-stone-950" />}
           >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>Export Excel (.xlsx)</span>
-          </button>
+            Download Official Statement PDF
+          </Button>
         </div>
       </div>
 
-      {/* Filter Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center space-x-4">
-          <div className="space-y-1">
-            <label className="block text-[11px] font-bold text-slate-600 uppercase">Select Customer</label>
+      {ledgerError && <ErrorAlert title="Ledger Error" message={(ledgerError as Error).message} />}
+
+      {/* Client Selector & Date Range Filter Bar */}
+      <div className="bg-white/85 backdrop-blur-md p-6 rounded-3xl border border-stone-900/[0.06] shadow-xs space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+          <div className="space-y-1.5">
+            <label className="block text-[11px] font-bold text-stone-700">Select Customer Account</label>
             <select
-              value={activeClientId || ''}
+              value={selectedClientId || ''}
               onChange={(e) => setSelectedClientId(Number(e.target.value))}
-              className="text-xs font-bold p-2 border border-slate-300 rounded-lg bg-white text-slate-900 min-w-[220px]"
+              className="w-full text-xs font-bold p-2.5 border border-stone-200 rounded-xl bg-white text-stone-900 focus:outline-none focus:ring-1 focus:ring-stone-900"
             >
-              {metaData?.clients.map((c) => (
+              {clients.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name} ({c.company_name || c.state})
+                  {c.name} ({c.company_name || 'Individual'})
                 </option>
               ))}
             </select>
           </div>
 
-          <div className="space-y-1">
-            <label className="block text-[11px] font-bold text-slate-600 uppercase">From Date</label>
+          <div className="space-y-1.5">
+            <label className="block text-[11px] font-bold text-stone-700">Statement Start Date</label>
             <input
               type="date"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              className="text-xs font-bold p-2 border border-slate-300 rounded-lg bg-white text-slate-900"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full text-xs font-semibold p-2.5 border border-stone-200 rounded-xl bg-white text-stone-900 focus:outline-none"
             />
           </div>
 
-          <div className="space-y-1">
-            <label className="block text-[11px] font-bold text-slate-600 uppercase">To Date</label>
+          <div className="space-y-1.5">
+            <label className="block text-[11px] font-bold text-stone-700">Statement End Date</label>
             <input
               type="date"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              className="text-xs font-bold p-2 border border-slate-300 rounded-lg bg-white text-slate-900"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full text-xs font-semibold p-2.5 border border-stone-200 rounded-xl bg-white text-stone-900 focus:outline-none"
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-[11px] font-bold text-stone-700">Financial Year Shortcuts</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setFinancialYear(2025)}
+                className="flex-1 py-2 bg-stone-100 hover:bg-stone-200 text-stone-900 font-bold rounded-xl text-[11px] transition-colors cursor-pointer"
+              >
+                FY 25-26
+              </button>
+              <button
+                type="button"
+                onClick={() => setFinancialYear(2024)}
+                className="flex-1 py-2 bg-stone-100 hover:bg-stone-200 text-stone-900 font-bold rounded-xl text-[11px] transition-colors cursor-pointer"
+              >
+                FY 24-25
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStartDate('');
+                  setEndDate('');
+                }}
+                className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-600 font-bold rounded-xl text-[11px] transition-colors cursor-pointer"
+              >
+                All Time
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => handleApplyFY('2026-27')}
-            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1 cursor-pointer"
-          >
-            <Calendar className="w-3.5 h-3.5 text-slate-500" />
-            <span>FY 2026-27</span>
-          </button>
-          {(from || to) && (
-            <button
-              onClick={() => {
-                setFrom('');
-                setTo('');
-              }}
-              className="px-3 py-1.5 text-xs text-rose-600 font-bold hover:underline"
-            >
-              Reset Dates
-            </button>
-          )}
-        </div>
+        {/* Selected Customer Snapshot Banner */}
+        {selectedClient && (
+          <div className="p-4 bg-stone-50/80 rounded-2xl border border-stone-900/[0.04] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs">
+            <div className="space-y-0.5">
+              <div className="font-extrabold text-stone-900 text-sm">{selectedClient.name}</div>
+              <div className="text-stone-500 text-[11px]">
+                GSTIN: <strong className="text-stone-800 font-mono">{selectedClient.gst_number || 'URP'}</strong> • State: {selectedClient.state} • Terms: {selectedClient.default_due_days} Days
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-6 text-right">
+              <div>
+                <span className="text-[10px] text-stone-400 font-bold uppercase block">Opening Balance</span>
+                <span className="font-bold text-stone-900 text-sm">
+                  ₹{Number(ledgerData?.opening_balance || 0).toFixed(2)}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-stone-400 font-bold uppercase block">Current Outstanding</span>
+                <span className="font-extrabold text-rose-600 text-base">
+                  ₹{Number(ledgerData?.current_outstanding || 0).toFixed(2)}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {error && <ErrorAlert title="Ledger Error" message={(error as Error).message} />}
+      {isLedgerFetching ? (
+        <LedgerLoadingAnimation />
+      ) : (
+        <div className="bg-white/85 backdrop-blur-md rounded-3xl border border-stone-900/[0.06] shadow-xs overflow-hidden space-y-4 p-6 lg:p-8 animate-in fade-in zoom-in-95 duration-500">
+          <div className="flex items-center justify-between">
+          <h3 className="font-extrabold text-stone-900 text-sm tracking-tight flex items-center space-x-2">
+            <Receipt className="w-4 h-4 text-stone-700" />
+            <span>Chronological Running Ledger ({filteredStatement.length} Entries)</span>
+          </h3>
 
-      {/* Ledger Table & Summary Box */}
-      {isLedgerLoading ? (
-        <LoadingSpinner label="Querying ledger records..." />
-      ) : ledgerData ? (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden space-y-0">
-          {/* Opening Balance Banner */}
-          <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs">
-            <div className="font-bold text-slate-700 flex items-center space-x-2">
-              <BookOpen className="w-4 h-4 text-blue-600" />
-              <span>Customer: {ledgerData.client.name} ({ledgerData.client.company_name || 'Individual'})</span>
-            </div>
-            <div className="text-slate-600 font-medium">
-              Opening Balance: <strong className="text-slate-900 font-extrabold">₹{Number(ledgerData.opening_balance).toFixed(2)}</strong>
-            </div>
+          <div className="relative w-64">
+            <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search description or ref..."
+              className="w-full pl-9 pr-3 py-1.5 border border-stone-200 rounded-xl bg-white text-stone-900 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-stone-900 placeholder:text-stone-400"
+            />
           </div>
+        </div>
 
-          {/* Statement Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-600">
-              <thead className="bg-slate-100 text-slate-700 font-bold uppercase border-b border-slate-200">
+        {isLedgerLoading ? (
+          <LoadingSpinner label="Calculating double-entry running balance..." />
+        ) : (
+          <div className="overflow-x-auto border border-stone-900/[0.06] rounded-2xl bg-white">
+            <table className="w-full text-left text-xs text-stone-700">
+              <thead className="bg-stone-50 text-stone-500 font-extrabold uppercase text-[10px] tracking-wider border-b border-stone-900/[0.05]">
                 <tr>
-                  <th className="p-3">Date</th>
-                  <th className="p-3">Type</th>
-                  <th className="p-3">Doc / Ref #</th>
-                  <th className="p-3">Particulars / Description</th>
-                  <th className="p-3 text-right">Debit (Dr ₹)</th>
-                  <th className="p-3 text-right">Credit (Cr ₹)</th>
-                  <th className="p-3 text-right">Balance (₹)</th>
-                  <th className="p-3 text-center">Status</th>
+                  <th className="p-3.5">Date</th>
+                  <th className="p-3.5">Transaction Particulars</th>
+                  <th className="p-3.5">Reference #</th>
+                  <th className="p-3.5 text-right text-rose-700">Debit (Billed ₹)</th>
+                  <th className="p-3.5 text-right text-emerald-800">Credit (Paid ₹)</th>
+                  <th className="p-3.5 text-right font-black">Running Balance (₹)</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
-                {ledgerData.statement.map((entry, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50">
-                    <td className="p-3 font-medium text-slate-800">{entry.date}</td>
-                    <td className="p-3 uppercase font-bold text-slate-500">{entry.entry_type}</td>
-                    <td className="p-3 font-bold text-slate-900">{entry.invoice_number || entry.transaction_reference || 'N/A'}</td>
-                    <td className="p-3">{entry.description}</td>
-                    <td className="p-3 text-right font-bold text-slate-900">
-                      {entry.debit > 0 ? `₹${Number(entry.debit).toFixed(2)}` : '-'}
-                    </td>
-                    <td className="p-3 text-right font-bold text-emerald-600">
-                      {entry.credit > 0 ? `₹${Number(entry.credit).toFixed(2)}` : '-'}
-                    </td>
-                    <td className="p-3 text-right font-extrabold text-slate-900">
-                      ₹{Number(entry.running_balance).toFixed(2)}
-                    </td>
-                    <td className="p-3 text-center font-bold capitalize">
-                      <span
-                        className={
-                          entry.status === 'Paid'
-                            ? 'text-emerald-600'
-                            : entry.status === 'Partial'
-                            ? 'text-amber-600'
-                            : entry.status === 'Overdue'
-                            ? 'text-rose-600 font-extrabold'
-                            : 'text-slate-500'
-                        }
-                      >
-                        {entry.status || '-'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+              <tbody className="divide-y divide-stone-100 bg-white">
+                {filteredStatement.map((entry: any, idx: number) => {
+                  return (
+                    <tr key={idx} className="hover:bg-stone-50/50 transition-colors">
+                      <td className="p-3.5 font-mono text-stone-500 text-[11px] whitespace-nowrap">
+                        {entry.date}
+                      </td>
+                      <td className="p-3.5">
+                        <div className="font-bold text-stone-900">{entry.description}</div>
+                        {entry.due_date && (
+                          <div className="text-[10px] text-stone-400">Due Date: {entry.due_date}</div>
+                        )}
+                      </td>
+                      <td className="p-3.5 font-mono text-stone-600">
+                        {entry.invoice_number || entry.transaction_reference || '—'}
+                      </td>
+                      <td className="p-3.5 text-right font-extrabold text-stone-900">
+                        {entry.debit > 0 ? `₹${Number(entry.debit).toFixed(2)}` : '—'}
+                      </td>
+                      <td className="p-3.5 text-right font-extrabold text-[#1E5E41]">
+                        {entry.credit > 0 ? `₹${Number(entry.credit).toFixed(2)}` : '—'}
+                      </td>
+                      <td className="p-3.5 text-right font-black text-stone-900 text-sm">
+                        ₹{Number(entry.running_balance).toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                })}
 
-                {ledgerData.statement.length === 0 && (
+                {filteredStatement.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="p-6 text-center text-slate-400 italic">
-                      No ledger transactions recorded in selected period.
+                    <td colSpan={6} className="p-12 text-center text-stone-400 italic">
+                      No ledger transactions found for this customer and date range.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-
-          {/* Closing Outstanding Banner */}
-          <div className="p-4 bg-slate-900 text-white border-t border-slate-800 flex items-center justify-between text-xs">
-            <div className="font-semibold text-slate-400">Statement Closing Summary</div>
-            <div className="text-right">
-              <span className="text-slate-400 font-bold uppercase mr-2">Closing Outstanding Balance:</span>
-              <span className="text-lg font-extrabold text-emerald-400">
-                ₹{Number(ledgerData.current_outstanding).toFixed(2)}
-              </span>
-            </div>
-          </div>
-        </div>
-      ) : null}
+        )}
+      </div>
+      )}
     </div>
   );
 };
